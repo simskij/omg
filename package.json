@@ -1,0 +1,28 @@
+{
+  "name": "omg-webapp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run dev:server & bun run dev:client",
+    "dev:client": "vite --host 0.0.0.0",
+    "dev:server": "bun --watch src/server/index.ts",
+    "build": "bun run build:client && bun run build:server",
+    "build:client": "vite build",
+    "build:server": "bun build src/server/index.ts --target=bun --outdir=dist/server",
+    "start": "bun dist/server/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "^0.130.0",
+    "apexcharts": "^5.11.0"
+  }
+}
