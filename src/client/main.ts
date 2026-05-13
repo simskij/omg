@@ -65,6 +65,15 @@ type CanvasHeatmapInstruction = {
 
 type CanvasInstruction = CanvasSingleStatInstruction | CanvasGraphInstruction | CanvasHeatmapInstruction;
 
+type TimelineEntry = {
+  canvas?: CanvasInstruction[];
+  role: "user" | "assistant" | "system";
+  text: string;
+  timestamp: string;
+};
+
+const timelineStorageKey = "omg.timeline.v1";
+
 const app = document.querySelector<HTMLDivElement>("#app");
 
 if (!app) {
@@ -136,6 +145,52 @@ const sendButton = document.querySelector<HTMLButtonElement>("#send-button");
 let codexAuthenticated = false;
 let authStatusTimer: number | undefined;
 let charts: ApexCharts[] = [];
+let timelineEntries: TimelineEntry[] = loadTimelineEntries();
+
+function loadTimelineEntries() {
+  try {
+    const raw = window.localStorage.getItem(timelineStorageKey);
+
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter((entry): entry is TimelineEntry => {
+      if (!entry || typeof entry !== "object") {
+        return false;
+      }
+
+      const candidate = entry as Partial<TimelineEntry>;
+
+      return (
+        (candidate.role === "user" || candidate.role === "assistant" || candidate.role === "system") &&
+        typeof candidate.text === "string" &&
+        typeof candidate.timestamp === "string"
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+function saveTimelineEntries() {
+  try {
+    window.localStorage.setItem(timelineStorageKey, JSON.stringify(timelineEntries));
+  } catch {
+    // Ignore storage failures; chat should still work without persistence.
+  }
+}
+
+function persistTimelineEntry(entry: TimelineEntry) {
+  timelineEntries = [...timelineEntries, entry].slice(-100);
+  saveTimelineEntries();
+}
 
 function formatSingleStatValue({ type, value }: Pick<SingleStatProps, "type" | "value">) {
   if (type === "bool") {
@@ -390,18 +445,20 @@ function createTimelineRow() {
   return { canvasContent, chatCell, row };
 }
 
-function formatTimelineTimestamp(date = new Date()) {
-  return date.toLocaleTimeString(undefined, {
+function formatTimelineTimestamp(date: Date | string = new Date()) {
+  const timestamp = typeof date === "string" ? new Date(date) : date;
+
+  return timestamp.toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   });
 }
 
-function appendTimelineTimestamp(canvasContent: HTMLElement, chatCell: HTMLElement) {
+function appendTimelineTimestamp(canvasContent: HTMLElement, chatCell: HTMLElement, timestamp?: string) {
   const canvasTimestamp = document.createElement("p");
   canvasTimestamp.className = "mb-3 text-xs font-medium uppercase tracking-[0.2em] text-slate-500";
-  canvasTimestamp.textContent = formatTimelineTimestamp();
+  canvasTimestamp.textContent = formatTimelineTimestamp(timestamp);
 
   const chatTimestamp = document.createElement("p");
   chatTimestamp.className = "mb-3 text-xs font-medium uppercase tracking-[0.2em] text-slate-500";
@@ -429,10 +486,12 @@ function setChatEnabled(enabled: boolean) {
   }
 }
 
-function appendMessage(text: string, role: "user" | "assistant" | "system") {
+function appendMessage(text: string, role: "user" | "assistant" | "system", options?: { persist?: boolean; timestamp?: string }) {
   if (!timeline) {
     return null;
   }
+
+  const timestamp = options?.timestamp ?? new Date().toISOString();
 
   const { chatCell } = createTimelineRow();
 
@@ -453,17 +512,27 @@ function appendMessage(text: string, role: "user" | "assistant" | "system") {
   chatCell.append(messageElement);
   sharedScroll?.scrollTo({ top: sharedScroll.scrollHeight });
 
+  if (options?.persist !== false) {
+    persistTimelineEntry({ role, text, timestamp });
+  }
+
   return messageElement;
 }
 
-function appendAssistantResponse(text: string, canvasGroup: HTMLElement | null) {
+function appendAssistantResponse(
+  text: string,
+  canvasGroup: HTMLElement | null,
+  options?: { canvas?: CanvasInstruction[]; persist?: boolean; timestamp?: string },
+) {
   if (!timeline) {
     return null;
   }
 
+  const timestamp = options?.timestamp ?? new Date().toISOString();
+
   const { canvasContent, chatCell } = createTimelineRow();
 
-  appendTimelineTimestamp(canvasContent, chatCell);
+  appendTimelineTimestamp(canvasContent, chatCell, timestamp);
 
   if (canvasGroup) {
     canvasContent.append(canvasGroup);
@@ -476,6 +545,10 @@ function appendAssistantResponse(text: string, canvasGroup: HTMLElement | null) 
   chatCell.append(messageElement);
   matchMessageHeightToCanvas(messageElement, canvasGroup);
   sharedScroll?.scrollTo({ top: sharedScroll.scrollHeight });
+
+  if (options?.persist !== false) {
+    persistTimelineEntry({ canvas: options?.canvas, role: "assistant", text, timestamp });
+  }
 
   return messageElement;
 }
@@ -514,12 +587,34 @@ function appendThinkingIndicator() {
   return { indicator, row };
 }
 
-window.setTimeout(() => {
-  appendMessage(
-    "Hi, welcome to OMG! I'm your personal telemetry visualization buddy. Ask me about your telemetry, and I'll help you investigate what's going on.",
-    "assistant",
-  );
-}, 700);
+async function restoreTimeline() {
+  for (const entry of timelineEntries) {
+    if (entry.role === "assistant") {
+      const canvasGroup = entry.canvas?.length ? await renderCanvasInstructions(entry.canvas) : null;
+      appendAssistantResponse(entry.text, canvasGroup, {
+        canvas: entry.canvas,
+        persist: false,
+        timestamp: entry.timestamp,
+      });
+      continue;
+    }
+
+    appendMessage(entry.text, entry.role, { persist: false, timestamp: entry.timestamp });
+  }
+}
+
+void restoreTimeline().then(() => {
+  if (timelineEntries.length > 0) {
+    return;
+  }
+
+  window.setTimeout(() => {
+    appendMessage(
+      "Hi, welcome to OMG! I'm your personal telemetry visualization buddy. Ask me about your telemetry, and I'll help you investigate what's going on.",
+      "assistant",
+    );
+  }, 700);
+});
 
 async function loadCodexStatus() {
   try {
@@ -631,7 +726,7 @@ chatForm?.addEventListener("submit", async (event) => {
 
     thinkingIndicator?.row.remove();
     const canvasGroup = result.canvas?.length ? await renderCanvasInstructions(result.canvas) : null;
-    appendAssistantResponse(result.reply, canvasGroup);
+    appendAssistantResponse(result.reply, canvasGroup, { canvas: result.canvas });
   } catch (error) {
     thinkingIndicator?.row.remove();
     appendMessage(error instanceof Error ? error.message : "Codex request failed", "system");
