@@ -48,7 +48,7 @@ bun run dev
 <br/>
 
 <div align="center">
-  <img width="100%" alt="showcase" src="https://github.com/user-attachments/assets/f18adbb2-fad0-4b55-87a2-4be1efe01c1a" />
+  <img width="100%" alt="omg-timeline-2026-05-13T17-34-15-650Z" src="https://github.com/user-attachments/assets/5d8501b3-af03-4f36-b4eb-8a6ce33f6e7b" />
 </div>
 
 <br/>
