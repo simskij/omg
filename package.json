@@ -23,6 +23,8 @@
   },
   "dependencies": {
     "@openai/codex-sdk": "^0.130.0",
-    "apexcharts": "^5.11.0"
+    "apexcharts": "^5.11.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1"
   }
 }
